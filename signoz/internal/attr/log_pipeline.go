@@ -8,6 +8,4 @@ const (
 	PipelineFilter  = "filter"
 	PipelineConfig  = "config"
 	Processors      = "processors"
-	CreatedBy       = "created_by"
-	CreatedAt       = "created_at"
 )

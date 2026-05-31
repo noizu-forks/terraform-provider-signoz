@@ -14,8 +14,6 @@ const (
 	SecondLimit  = "second_limit"
 	ExpiresAt    = "expires_at"
 	KeyTags      = "tags"
-	CreatedAt    = "created_at"
-	UpdatedAt    = "updated_at"
 )
 
 func RateLimitsAttrTypes() map[string]tfattr.Type {

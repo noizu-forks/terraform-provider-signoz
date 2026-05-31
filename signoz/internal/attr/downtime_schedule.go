@@ -12,8 +12,4 @@ const (
 	RecurrenceType = "type"
 	DaysOfWeek     = "days_of_week"
 	Duration       = "duration"
-	CreatedAt      = "created_at"
-	CreatedBy      = "created_by"
-	UpdatedAt      = "updated_at"
-	UpdatedBy      = "updated_by"
 )
