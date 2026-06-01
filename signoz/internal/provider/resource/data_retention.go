@@ -12,6 +12,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
@@ -85,6 +87,9 @@ func (r *dataRetentionResource) Schema(_ context.Context, _ resource.SchemaReque
 			attr.ID: schema.StringAttribute{
 				Computed:    true,
 				Description: "Synthetic ID for the data retention settings. Always \"settings\".",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			attr.MetricsTTLDuration: schema.Int64Attribute{
 				Optional:    true,
@@ -168,13 +173,20 @@ func (r *dataRetentionResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
+	// API returns -1 for "not explicitly configured" — preserve state value in that case.
+	setIfPositive := func(current types.Int64, apiVal int) types.Int64 {
+		if apiVal >= 0 {
+			return types.Int64Value(int64(apiVal))
+		}
+		return current
+	}
 	state.ID = types.StringValue(dataRetentionSyntheticID)
-	state.MetricsTTLDurationHrs = types.Int64Value(int64(retention.MetricsTTLDurationHrs))
-	state.MetricsMoveTTLDurationHrs = types.Int64Value(int64(retention.MetricsMoveTTLDurationHrs))
-	state.LogsTTLDurationHrs = types.Int64Value(int64(retention.LogsTTLDurationHrs))
-	state.LogsMoveTTLDurationHrs = types.Int64Value(int64(retention.LogsMoveTTLDurationHrs))
-	state.TracesTTLDurationHrs = types.Int64Value(int64(retention.TracesTTLDurationHrs))
-	state.TracesMoveTTLDurationHrs = types.Int64Value(int64(retention.TracesMoveTTLDurationHrs))
+	state.MetricsTTLDurationHrs = setIfPositive(state.MetricsTTLDurationHrs, retention.MetricsTTLDurationHrs)
+	state.MetricsMoveTTLDurationHrs = setIfPositive(state.MetricsMoveTTLDurationHrs, retention.MetricsMoveTTLDurationHrs)
+	state.LogsTTLDurationHrs = setIfPositive(state.LogsTTLDurationHrs, retention.LogsTTLDurationHrs)
+	state.LogsMoveTTLDurationHrs = setIfPositive(state.LogsMoveTTLDurationHrs, retention.LogsMoveTTLDurationHrs)
+	state.TracesTTLDurationHrs = setIfPositive(state.TracesTTLDurationHrs, retention.TracesTTLDurationHrs)
+	state.TracesMoveTTLDurationHrs = setIfPositive(state.TracesMoveTTLDurationHrs, retention.TracesMoveTTLDurationHrs)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

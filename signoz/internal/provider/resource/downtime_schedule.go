@@ -320,23 +320,33 @@ func (r *downtimeScheduleResource) Update(ctx context.Context, req resource.Upda
 		return
 	}
 
-	// Overwrite items with refreshed state.
+	// Preserve plan values — v0.104.0 API may omit fields with omitempty.
 	plan.ID = types.StringValue(result.ID)
-	plan.Name = types.StringValue(result.Name)
-	plan.Description = types.StringValue(result.Description)
-	plan.AllAlerts = types.BoolValue(result.AllAlerts)
-	plan.CreatedAt = types.StringValue(result.CreatedAt)
-	plan.CreatedBy = types.StringValue(result.CreatedBy)
-	plan.UpdatedAt = types.StringValue(result.UpdatedAt)
-	plan.UpdatedBy = types.StringValue(result.UpdatedBy)
-
-	var diagAlertIDs diag.Diagnostics
-	plan.AlertIDs, diagAlertIDs = result.AlertIDsToTerraform()
-	resp.Diagnostics.Append(diagAlertIDs...)
-
-	var diagSchedule diag.Diagnostics
-	plan.Schedule, diagSchedule = result.ScheduleToTerraform(ctx)
-	resp.Diagnostics.Append(diagSchedule...)
+	if result.Name != "" {
+		plan.Name = types.StringValue(result.Name)
+	}
+	// Description, AllAlerts: keep plan values (API may omit empty description or return false for bool)
+	if result.CreatedAt != "" {
+		plan.CreatedAt = types.StringValue(result.CreatedAt)
+	} else {
+		plan.CreatedAt = state.CreatedAt
+	}
+	if result.CreatedBy != "" {
+		plan.CreatedBy = types.StringValue(result.CreatedBy)
+	} else {
+		plan.CreatedBy = state.CreatedBy
+	}
+	if result.UpdatedAt != "" {
+		plan.UpdatedAt = types.StringValue(result.UpdatedAt)
+	} else {
+		plan.UpdatedAt = state.UpdatedAt
+	}
+	if result.UpdatedBy != "" {
+		plan.UpdatedBy = types.StringValue(result.UpdatedBy)
+	} else {
+		plan.UpdatedBy = state.UpdatedBy
+	}
+	// AlertIDs and Schedule: keep plan values (API may omit empty lists)
 
 	// Set refreshed state.
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
