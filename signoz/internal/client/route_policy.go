@@ -57,6 +57,7 @@ func (c *Client) GetRoutePolicy(ctx context.Context, id string) (*model.RoutePol
 		return &model.RoutePolicy{}, fmt.Errorf("error while fetching route policy: %s", bodyObj.Error)
 	}
 
+	bodyObj.Data.PopulateFromAPI()
 	tflog.Debug(ctx, "GetRoutePolicy: route policy fetched", map[string]any{"routePolicy": bodyObj.Data})
 
 	return &bodyObj.Data, nil
@@ -64,6 +65,7 @@ func (c *Client) GetRoutePolicy(ctx context.Context, id string) (*model.RoutePol
 
 // CreateRoutePolicy - Creates a new route policy.
 func (c *Client) CreateRoutePolicy(ctx context.Context, payload *model.RoutePolicy) (*model.RoutePolicy, error) {
+	payload.PrepareForAPI()
 	rb, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -105,6 +107,7 @@ func (c *Client) CreateRoutePolicy(ctx context.Context, payload *model.RoutePoli
 
 // UpdateRoutePolicy - Updates an existing route policy.
 func (c *Client) UpdateRoutePolicy(ctx context.Context, id string, payload *model.RoutePolicy) error {
+	payload.PrepareForAPI()
 	rb, err := json.Marshal(payload)
 	if err != nil {
 		return err

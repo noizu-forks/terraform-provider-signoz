@@ -3,7 +3,6 @@ package datasource
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -219,7 +218,7 @@ func (d *notificationChannelDataSource) Read(ctx context.Context, req datasource
 	}
 
 	// Set state values from retrieved data.
-	data.ID = types.StringValue(strconv.Itoa(channel.ID))
+	data.ID = types.StringValue(channel.ID)
 	data.Name = types.StringValue(channel.Name)
 	data.Type = types.StringValue(channel.Type)
 

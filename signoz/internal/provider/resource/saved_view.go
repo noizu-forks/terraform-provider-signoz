@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/attr"
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/client"
@@ -212,6 +213,11 @@ func (r *savedViewResource) Read(ctx context.Context, req resource.ReadRequest, 
 	// Get refreshed saved view from SigNoz.
 	savedView, err := r.client.GetSavedView(ctx, state.UUID.ValueString())
 	if err != nil {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			tflog.Warn(ctx, "Saved view not found, removing from state", map[string]any{"uuid": state.UUID.ValueString()})
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		addErr(&resp.Diagnostics, err, operationRead, "signoz_saved_view")
 		return
 	}

@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/attr"
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/client"
@@ -207,26 +208,13 @@ func (r *routePolicyResource) Create(ctx context.Context, req resource.CreateReq
 
 	tflog.Debug(ctx, "Created route policy", map[string]any{"routePolicy": routePolicy})
 
-	// Map response to schema and populate Computed attributes.
+	// Preserve plan values — v0.104.0 API response doesn't include all fields
+	// (matchers, group_wait, group_interval, repeat_interval, enabled, channel_ids).
 	plan.ID = types.StringValue(routePolicy.ID)
-	plan.RouteName = types.StringValue(routePolicy.Name)
-	plan.Description = types.StringValue(routePolicy.Description)
-	plan.Enabled = types.BoolValue(routePolicy.Enabled)
-	plan.ContinueMatching = types.BoolValue(routePolicy.Continue)
-	plan.GroupWait = types.StringValue(routePolicy.GroupWait)
-	plan.GroupInterval = types.StringValue(routePolicy.GroupInterval)
-	plan.RepeatInterval = types.StringValue(routePolicy.RepeatInterval)
 	plan.CreatedAt = types.StringValue(routePolicy.CreatedAt)
 	plan.CreatedBy = types.StringValue(routePolicy.CreatedBy)
 	plan.UpdatedAt = types.StringValue(routePolicy.UpdatedAt)
 	plan.UpdatedBy = types.StringValue(routePolicy.UpdatedBy)
-
-	var diagMatchers, diagChannelIDs diag.Diagnostics
-	plan.Matchers, diagMatchers = routePolicy.MatchersToTerraform()
-	resp.Diagnostics.Append(diagMatchers...)
-
-	plan.ChannelIDs, diagChannelIDs = routePolicy.ChannelIDsToTerraform()
-	resp.Diagnostics.Append(diagChannelIDs...)
 
 	// Set state to populated data.
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
@@ -249,6 +237,11 @@ func (r *routePolicyResource) Read(ctx context.Context, req resource.ReadRequest
 	// Get refreshed route policy from SigNoz.
 	routePolicy, err := r.client.GetRoutePolicy(ctx, state.ID.ValueString())
 	if err != nil {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			tflog.Warn(ctx, "Route policy not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		addErr(&resp.Diagnostics, err, operationRead, "signoz_route_policy")
 		return
 	}

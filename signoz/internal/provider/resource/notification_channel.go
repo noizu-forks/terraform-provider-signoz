@@ -3,7 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
-	"strconv"
+	"strings"
 
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/attr"
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/client"
@@ -243,7 +243,7 @@ func (r *notificationChannelResource) Create(ctx context.Context, req resource.C
 	tflog.Debug(ctx, "Created notification channel", map[string]any{"channel": channel})
 
 	// Map response to schema and populate Computed attributes.
-	plan.ID = types.StringValue(strconv.Itoa(channel.ID))
+	plan.ID = types.StringValue(channel.ID)
 
 	// Set state to populated data.
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
@@ -266,12 +266,17 @@ func (r *notificationChannelResource) Read(ctx context.Context, req resource.Rea
 	// Get refreshed channel from SigNoz.
 	channel, err := r.client.GetChannel(ctx, state.ID.ValueString())
 	if err != nil {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			tflog.Warn(ctx, "Notification channel not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		addErr(&resp.Diagnostics, err, operationRead, "signoz_notification_channel")
 		return
 	}
 
 	// Overwrite items with refreshed state.
-	state.ID = types.StringValue(strconv.Itoa(channel.ID))
+	state.ID = types.StringValue(channel.ID)
 	state.Name = types.StringValue(channel.Name)
 	state.Type = types.StringValue(channel.Type)
 
@@ -296,16 +301,9 @@ func (r *notificationChannelResource) Update(ctx context.Context, req resource.U
 		return
 	}
 
-	// Parse ID from state.
-	id, err := strconv.Atoi(state.ID.ValueString())
-	if err != nil {
-		addErr(&resp.Diagnostics, fmt.Errorf("invalid channel ID: %s", state.ID.ValueString()), operationUpdate, "signoz_notification_channel")
-		return
-	}
-
 	// Generate API request body from plan.
 	channelUpdate := &model.NotificationChannel{
-		ID:   id,
+		ID:   state.ID.ValueString(),
 		Name: plan.Name.ValueString(),
 		Type: plan.Type.ValueString(),
 	}
@@ -315,25 +313,15 @@ func (r *notificationChannelResource) Update(ctx context.Context, req resource.U
 	tflog.Debug(ctx, "Updating notification channel", map[string]any{"channel": channelUpdate})
 
 	// Update existing channel.
-	err = r.client.UpdateChannel(ctx, state.ID.ValueString(), channelUpdate)
+	err := r.client.UpdateChannel(ctx, state.ID.ValueString(), channelUpdate)
 	if err != nil {
 		addErr(&resp.Diagnostics, err, operationUpdate, "signoz_notification_channel")
 		return
 	}
 
-	// Fetch updated channel.
-	channel, err := r.client.GetChannel(ctx, state.ID.ValueString())
-	if err != nil {
-		addErr(&resp.Diagnostics, err, operationUpdate, "signoz_notification_channel")
-		return
-	}
-
-	// Overwrite items with refreshed state.
-	plan.ID = types.StringValue(strconv.Itoa(channel.ID))
-	plan.Name = types.StringValue(channel.Name)
-	plan.Type = types.StringValue(channel.Type)
-
-	setChannelStateFromAPI(channel, &plan)
+	// Preserve plan values — don't re-read from API to avoid server-side defaults
+	// (html template, send_resolved) causing inconsistency errors.
+	plan.ID = state.ID
 
 	// Set refreshed state.
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)

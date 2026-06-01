@@ -11,10 +11,10 @@ type DataRetention struct {
 	TracesMoveTTLDurationHrs  int `json:"expected_traces_move_ttl_duration_hrs"`
 }
 
-// DataRetentionUpdate is the POST payload for /api/v1/settings/ttl.
-// One POST per signal type (metrics, logs, traces).
+// DataRetentionUpdate is the payload for setting retention.
+// v2 API uses duration_hrs (integer hours).
 type DataRetentionUpdate struct {
-	Type                string `json:"type"`
-	Duration            string `json:"duration"`
-	ColdStorageDuration string `json:"cold_storage_duration"`
+	Type                    string `json:"type"`
+	DurationHrs             int64  `json:"duration_hrs"`
+	ColdStorageDurationHrs  int64  `json:"cold_storage_duration_hrs,omitempty"`
 }

@@ -17,6 +17,14 @@ const (
 	channelPath = "api/v1/channels"
 )
 
+// channelListResponse - Maps the response data of ListChannels (array).
+type channelListResponse struct {
+	Status    string                       `json:"status"`
+	Error     string                       `json:"error"`
+	ErrorType string                       `json:"errorType"`
+	Data      []model.NotificationChannel  `json:"data"`
+}
+
 // channelResponse - Maps the response data of GetChannel and CreateChannel.
 type channelResponse struct {
 	Status    string                       `json:"status"`
@@ -83,6 +91,12 @@ func (c *Client) CreateChannel(ctx context.Context, channelPayload *model.Notifi
 		return nil, err
 	}
 
+	// v0.104.0 returns 204 No Content on success — empty body.
+	if len(body) == 0 {
+		tflog.Debug(ctx, "CreateChannel: empty response, fetching channel by name", map[string]any{"name": channelPayload.Name})
+		return c.findChannelByName(ctx, channelPayload.Name)
+	}
+
 	var bodyObj channelResponse
 	err = json.Unmarshal(body, &bodyObj)
 	if err != nil {
@@ -101,6 +115,37 @@ func (c *Client) CreateChannel(ctx context.Context, channelPayload *model.Notifi
 	tflog.Debug(ctx, "CreateChannel: channel created", map[string]any{"channel": bodyObj.Data})
 
 	return &bodyObj.Data, nil
+}
+
+// findChannelByName lists all channels and returns the one matching the given name.
+func (c *Client) findChannelByName(ctx context.Context, name string) (*model.NotificationChannel, error) {
+	listURL, err := url.JoinPath(c.hostURL.String(), channelPath)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodGet, listURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := c.doRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var listObj channelListResponse
+	err = json.Unmarshal(body, &listObj)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range listObj.Data {
+		if listObj.Data[i].Name == name {
+			return &listObj.Data[i], nil
+		}
+	}
+
+	return nil, fmt.Errorf("channel %q created but not found in list", name)
 }
 
 // UpdateChannel - Updates an existing notification channel.
@@ -122,6 +167,12 @@ func (c *Client) UpdateChannel(ctx context.Context, channelID string, channelPay
 	body, err := c.doRequest(ctx, req)
 	if err != nil {
 		return err
+	}
+
+	// v0.104.0 returns 204 No Content on success.
+	if len(body) == 0 {
+		tflog.Debug(ctx, "UpdateChannel: channel updated (empty response)", map[string]any{"channelID": channelID})
+		return nil
 	}
 
 	var bodyObj signozResponse

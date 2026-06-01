@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/attr"
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/client"
@@ -158,6 +159,11 @@ func (r *dataRetentionResource) Read(ctx context.Context, req resource.ReadReque
 
 	retention, err := r.client.GetDataRetention(ctx)
 	if err != nil {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			tflog.Warn(ctx, "Data retention settings not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		addErr(&resp.Diagnostics, err, operationRead, SigNozDataRetention)
 		return
 	}
@@ -218,16 +224,20 @@ func (r *dataRetentionResource) setAllRetention(ctx context.Context, plan *dataR
 	}
 
 	for _, s := range signals {
+		// v0.104.0 only supports custom retention for logs
+		if s.signalType != "logs" {
+			continue
+		}
 		payload := &model.DataRetentionUpdate{
-			Type:                s.signalType,
-			Duration:            fmt.Sprintf("%dh", s.durationHrs),
-			ColdStorageDuration: fmt.Sprintf("%dh", s.moveHrs),
+			Type:                   s.signalType,
+			DurationHrs:            s.durationHrs,
+			ColdStorageDurationHrs: s.moveHrs,
 		}
 
 		tflog.Debug(ctx, "Setting data retention", map[string]any{
-			"type":     s.signalType,
-			"duration": payload.Duration,
-			"cold":     payload.ColdStorageDuration,
+			"type":         s.signalType,
+			"duration_hrs": payload.DurationHrs,
+			"cold_hrs":     payload.ColdStorageDurationHrs,
 		})
 
 		err := r.client.SetDataRetention(ctx, payload)

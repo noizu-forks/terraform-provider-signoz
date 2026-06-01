@@ -1,5 +1,7 @@
 package model
 
+import "encoding/json"
+
 const (
 	ChannelTypeSlack     = "slack"
 	ChannelTypeWebhook   = "webhook"
@@ -21,7 +23,7 @@ var ChannelTypes = []string{
 
 // NotificationChannel model.
 type NotificationChannel struct {
-	ID               int                `json:"id"`
+	ID               string             `json:"id"`
 	Name             string             `json:"name"`
 	Type             string             `json:"type"`
 	SlackConfigs     []SlackConfig      `json:"slack_configs,omitempty"`
@@ -32,9 +34,45 @@ type NotificationChannel struct {
 	EmailConfigs     []EmailConfig      `json:"email_configs,omitempty"`
 }
 
+// UnmarshalJSON handles v0.104.0 API responses where configs are in a nested
+// "data" JSON string rather than top-level fields.
+func (nc *NotificationChannel) UnmarshalJSON(b []byte) error {
+	type Alias NotificationChannel
+	var raw struct {
+		Alias
+		RawData string `json:"data"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	*nc = NotificationChannel(raw.Alias)
+
+	if nc.hasNoConfigs() && raw.RawData != "" {
+		var nested Alias
+		if err := json.Unmarshal([]byte(raw.RawData), &nested); err == nil {
+			nc.SlackConfigs = nested.SlackConfigs
+			nc.WebhookConfigs = nested.WebhookConfigs
+			nc.PagerdutyConfigs = nested.PagerdutyConfigs
+			nc.OpsgenieConfigs = nested.OpsgenieConfigs
+			nc.MSTeamsConfigs = nested.MSTeamsConfigs
+			nc.EmailConfigs = nested.EmailConfigs
+		}
+	}
+	return nil
+}
+
+func (nc *NotificationChannel) hasNoConfigs() bool {
+	return len(nc.SlackConfigs) == 0 &&
+		len(nc.WebhookConfigs) == 0 &&
+		len(nc.PagerdutyConfigs) == 0 &&
+		len(nc.OpsgenieConfigs) == 0 &&
+		len(nc.MSTeamsConfigs) == 0 &&
+		len(nc.EmailConfigs) == 0
+}
+
 // SlackConfig model.
 type SlackConfig struct {
-	ApiUrl string `json:"api_url"`
+	ApiUrl  string `json:"api_url"`
 	Channel string `json:"channel,omitempty"`
 	Title   string `json:"title,omitempty"`
 	Text    string `json:"text,omitempty"`

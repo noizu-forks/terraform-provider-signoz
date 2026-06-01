@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/attr"
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/client"
@@ -231,6 +232,11 @@ func (r *ingestionKeyResource) Read(ctx context.Context, req resource.ReadReques
 	// Get refreshed ingestion key from SigNoz.
 	key, err := r.client.GetIngestionKey(ctx, state.ID.ValueString())
 	if err != nil {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			tflog.Warn(ctx, "Ingestion key not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		addErr(&resp.Diagnostics, err, operationRead, "signoz_ingestion_key")
 		return
 	}

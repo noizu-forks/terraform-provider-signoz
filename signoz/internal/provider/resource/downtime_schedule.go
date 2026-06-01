@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/attr"
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/client"
@@ -241,6 +242,11 @@ func (r *downtimeScheduleResource) Read(ctx context.Context, req resource.ReadRe
 	// Get refreshed downtime schedule from SigNoz.
 	result, err := r.client.GetDowntimeSchedule(ctx, state.ID.ValueString())
 	if err != nil {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			tflog.Warn(ctx, "Downtime schedule not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		addErr(&resp.Diagnostics, err, operationRead, "signoz_downtime_schedule")
 		return
 	}

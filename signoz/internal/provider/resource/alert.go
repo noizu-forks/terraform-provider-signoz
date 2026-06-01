@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/attr"
 	"github.com/SigNoz/terraform-provider-signoz/signoz/internal/client"
@@ -386,8 +387,10 @@ func (r *alertResource) Create(ctx context.Context, req resource.CreateRequest, 
 			addErr(&resp.Diagnostics, evalErr, operationCreate, SigNozAlert)
 		}
 	} else {
-		plan.NotificationSettings = types.ObjectNull(
-			attr.NotificationSettingsAttrTypes())
+		if utils.IsNullOrUnknown(plan.NotificationSettings) {
+			plan.NotificationSettings = types.ObjectNull(
+				attr.NotificationSettingsAttrTypes())
+		}
 		plan.Evaluation = types.StringNull()
 	}
 
@@ -412,6 +415,11 @@ func (r *alertResource) Read(ctx context.Context, req resource.ReadRequest, resp
 	// Get refreshed alert from SigNoz.
 	alert, err := r.client.GetAlert(ctx, state.ID.ValueString())
 	if err != nil {
+		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+			tflog.Warn(ctx, "Alert not found, removing from state", map[string]any{"id": state.ID.ValueString()})
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		addErr(&resp.Diagnostics, err, operationRead, SigNozAlert)
 		return
 	}
@@ -464,8 +472,10 @@ func (r *alertResource) Read(ctx context.Context, req resource.ReadRequest, resp
 			return
 		}
 	} else {
-		state.NotificationSettings = types.ObjectNull(
-			attr.NotificationSettingsAttrTypes())
+		if utils.IsNullOrUnknown(state.NotificationSettings) {
+			state.NotificationSettings = types.ObjectNull(
+				attr.NotificationSettingsAttrTypes())
+		}
 		state.Evaluation = types.StringNull()
 	}
 
@@ -604,8 +614,10 @@ func (r *alertResource) Update(ctx context.Context, req resource.UpdateRequest, 
 			return
 		}
 	} else {
-		plan.NotificationSettings = types.ObjectNull(
-			attr.NotificationSettingsAttrTypes())
+		if utils.IsNullOrUnknown(plan.NotificationSettings) {
+			plan.NotificationSettings = types.ObjectNull(
+				attr.NotificationSettingsAttrTypes())
+		}
 		plan.Evaluation = types.StringNull()
 	}
 

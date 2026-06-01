@@ -16,8 +16,10 @@ type RoutePolicy struct {
 	Name           string         `json:"name"`
 	Description    string         `json:"description,omitempty"`
 	Enabled        bool           `json:"enabled"`
-	Matchers       []RouteMatcher `json:"matchers"`
-	ChannelIDs     []string       `json:"channel_ids"`
+	Matchers       []RouteMatcher `json:"matchers,omitempty"`
+	Expression     string         `json:"expression,omitempty"`
+	ChannelIDs     []string       `json:"channel_ids,omitempty"`
+	Channels       []string       `json:"channels,omitempty"`
 	Continue       bool           `json:"continue"`
 	GroupWait      string         `json:"group_wait,omitempty"`
 	GroupInterval  string         `json:"group_interval,omitempty"`
@@ -26,6 +28,79 @@ type RoutePolicy struct {
 	CreatedBy      string         `json:"created_by,omitempty"`
 	UpdatedAt      string         `json:"updated_at,omitempty"`
 	UpdatedBy      string         `json:"updated_by,omitempty"`
+}
+
+// PrepareForAPI populates v0.104.0 fields (expression, channels) from terraform fields (matchers, channel_ids).
+func (r *RoutePolicy) PrepareForAPI() {
+	r.BuildExpression()
+	if len(r.Channels) == 0 && len(r.ChannelIDs) > 0 {
+		r.Channels = r.ChannelIDs
+	}
+}
+
+// BuildExpression converts matchers to an expression string for v0.104.0 API.
+func (r *RoutePolicy) BuildExpression() {
+	if len(r.Matchers) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(r.Matchers))
+	for _, m := range r.Matchers {
+		switch m.MatchType {
+		case "regex":
+			parts = append(parts, m.Name+" matches \""+m.Value+"\"")
+		case "not_regex":
+			parts = append(parts, m.Name+" not matches \""+m.Value+"\"")
+		case "not_equals":
+			parts = append(parts, m.Name+" != \""+m.Value+"\"")
+		default:
+			parts = append(parts, m.Name+" == \""+m.Value+"\"")
+		}
+	}
+	r.Expression = strings.Join(parts, " AND ")
+}
+
+// PopulateFromAPI fills terraform fields from v0.104.0 API response.
+func (r *RoutePolicy) PopulateFromAPI() {
+	r.ParseExpression()
+	if len(r.ChannelIDs) == 0 && len(r.Channels) > 0 {
+		r.ChannelIDs = r.Channels
+	}
+}
+
+// ParseExpression converts an expression string back to matchers.
+func (r *RoutePolicy) ParseExpression() {
+	if r.Expression == "" || len(r.Matchers) > 0 {
+		return
+	}
+	clauses := strings.Split(r.Expression, " AND ")
+	for _, clause := range clauses {
+		clause = strings.TrimSpace(clause)
+		var name, value, matchType string
+		if idx := strings.Index(clause, " matches "); idx > 0 {
+			name = clause[:idx]
+			value = strings.Trim(clause[idx+9:], "\"")
+			matchType = "regex"
+		} else if idx := strings.Index(clause, " not matches "); idx > 0 {
+			name = clause[:idx]
+			value = strings.Trim(clause[idx+13:], "\"")
+			matchType = "not_regex"
+		} else if idx := strings.Index(clause, " != "); idx > 0 {
+			name = clause[:idx]
+			value = strings.Trim(clause[idx+4:], "\"")
+			matchType = "not_equals"
+		} else if idx := strings.Index(clause, " == "); idx > 0 {
+			name = clause[:idx]
+			value = strings.Trim(clause[idx+4:], "\"")
+			matchType = "equals"
+		} else {
+			continue
+		}
+		r.Matchers = append(r.Matchers, RouteMatcher{
+			Name:      strings.TrimSpace(name),
+			Value:     value,
+			MatchType: matchType,
+		})
+	}
 }
 
 // RouteMatcher model.
