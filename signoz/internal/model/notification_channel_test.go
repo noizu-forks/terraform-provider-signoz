@@ -7,7 +7,7 @@ import (
 
 func TestNotificationChannel_SlackJSONRoundTrip(t *testing.T) {
 	ch := NotificationChannel{
-		ID:   1,
+		ID:   "1",
 		Name: "slack-alerts",
 		Type: ChannelTypeSlack,
 		SlackConfigs: []SlackConfig{
@@ -32,7 +32,7 @@ func TestNotificationChannel_SlackJSONRoundTrip(t *testing.T) {
 	}
 
 	if ch2.ID != ch.ID {
-		t.Errorf("ID mismatch: %d != %d", ch2.ID, ch.ID)
+		t.Errorf("ID mismatch: %s != %s", ch2.ID, ch.ID)
 	}
 	if ch2.Name != ch.Name {
 		t.Errorf("Name mismatch: %s != %s", ch2.Name, ch.Name)
@@ -53,7 +53,7 @@ func TestNotificationChannel_SlackJSONRoundTrip(t *testing.T) {
 
 func TestNotificationChannel_WebhookJSONRoundTrip(t *testing.T) {
 	ch := NotificationChannel{
-		ID:   2,
+		ID:   "2",
 		Name: "webhook-alerts",
 		Type: ChannelTypeWebhook,
 		WebhookConfigs: []WebhookConfig{
@@ -89,7 +89,7 @@ func TestNotificationChannel_WebhookJSONRoundTrip(t *testing.T) {
 
 func TestNotificationChannel_PagerdutyJSONRoundTrip(t *testing.T) {
 	ch := NotificationChannel{
-		ID:   3,
+		ID:   "3",
 		Name: "pagerduty-alerts",
 		Type: ChannelTypePagerduty,
 		PagerdutyConfigs: []PagerdutyConfig{
@@ -129,7 +129,7 @@ func TestNotificationChannel_PagerdutyJSONRoundTrip(t *testing.T) {
 
 func TestNotificationChannel_OpsgenieJSONRoundTrip(t *testing.T) {
 	ch := NotificationChannel{
-		ID:   4,
+		ID:   "4",
 		Name: "opsgenie-alerts",
 		Type: ChannelTypeOpsgenie,
 		OpsgenieConfigs: []OpsgenieConfig{
@@ -161,7 +161,7 @@ func TestNotificationChannel_OpsgenieJSONRoundTrip(t *testing.T) {
 
 func TestNotificationChannel_MSTeamsJSONRoundTrip(t *testing.T) {
 	ch := NotificationChannel{
-		ID:   5,
+		ID:   "5",
 		Name: "teams-alerts",
 		Type: ChannelTypeMSTeams,
 		MSTeamsConfigs: []MSTeamsConfig{
@@ -192,7 +192,7 @@ func TestNotificationChannel_MSTeamsJSONRoundTrip(t *testing.T) {
 
 func TestNotificationChannel_EmailJSONRoundTrip(t *testing.T) {
 	ch := NotificationChannel{
-		ID:   6,
+		ID:   "6",
 		Name: "email-alerts",
 		Type: ChannelTypeEmail,
 		EmailConfigs: []EmailConfig{
@@ -235,7 +235,7 @@ func TestNotificationChannel_EmailJSONRoundTrip(t *testing.T) {
 
 func TestNotificationChannel_EmptyConfigs(t *testing.T) {
 	ch := NotificationChannel{
-		ID:   10,
+		ID:   "10",
 		Name: "empty",
 		Type: ChannelTypeSlack,
 	}
@@ -273,7 +273,7 @@ func TestNotificationChannel_ChannelTypes(t *testing.T) {
 
 func TestNotificationChannel_MultipleConfigs(t *testing.T) {
 	ch := NotificationChannel{
-		ID:   7,
+		ID:   "7",
 		Name: "multi-slack",
 		Type: ChannelTypeSlack,
 		SlackConfigs: []SlackConfig{

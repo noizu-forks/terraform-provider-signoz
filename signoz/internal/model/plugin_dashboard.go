@@ -176,3 +176,131 @@ func (d DashboardV2) ToJSON() (string, error) {
 	}
 	return string(b), nil
 }
+
+// ToDashboardV1 expands plugin pages into a classic SigNoz v1/v4 dashboard.
+// Each WebComponent panel is stored as a widget whose description embeds the
+// lacrossePlugin spec + stub properties so stock SigNoz APIs can host the
+// document until a plugin-host image renders WC panels natively.
+func (p PluginDashboard) ToDashboardV1() *Dashboard {
+	v2 := p.ToDashboardV2()
+	panels, _ := v2.Data["panels"].(map[string]interface{})
+	var widgets []map[string]interface{}
+	var layout []map[string]interface{}
+	// Flatten page layouts in page order
+	pageOrder, _ := v2.Data["pages"].([]string)
+	if pageOrder == nil {
+		if pi, ok := v2.Data["pages"].([]interface{}); ok {
+			for _, x := range pi {
+				if s, ok := x.(string); ok {
+					pageOrder = append(pageOrder, s)
+				}
+			}
+		}
+	}
+	// Collect layout items from layouts map or array
+	var layoutItems []map[string]interface{}
+	switch L := v2.Data["layouts"].(type) {
+	case []map[string]interface{}:
+		layoutItems = L
+	case []interface{}:
+		for _, it := range L {
+			if m, ok := it.(map[string]interface{}); ok {
+				layoutItems = append(layoutItems, m)
+			}
+		}
+	case map[string]interface{}:
+		for _, pname := range pageOrder {
+			if arr, ok := L[pname].([]map[string]interface{}); ok {
+				layoutItems = append(layoutItems, arr...)
+			} else if arr, ok := L[pname].([]interface{}); ok {
+				for _, it := range arr {
+					if m, ok := it.(map[string]interface{}); ok {
+						layoutItems = append(layoutItems, m)
+					}
+				}
+			}
+		}
+		if len(layoutItems) == 0 {
+			for _, v := range L {
+				if arr, ok := v.([]interface{}); ok {
+					for _, it := range arr {
+						if m, ok := it.(map[string]interface{}); ok {
+							layoutItems = append(layoutItems, m)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Index panels in stable order of layout items
+	seen := map[string]bool{}
+	for _, li := range layoutItems {
+		id, _ := li["i"].(string)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		panel, ok := panels[id].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		spec, _ := panel["spec"].(map[string]interface{})
+		display, _ := spec["display"].(map[string]interface{})
+		title, _ := display["name"].(string)
+		plugin := spec["plugin"]
+		meta, _ := json.Marshal(map[string]interface{}{
+			"lacrossePlugin": plugin,
+			"stubMode":       true,
+			"kind":           "plugin_panel",
+		})
+		widgets = append(widgets, map[string]interface{}{
+			"id":               id,
+			"title":            title,
+			"description":      string(meta),
+			"panelTypes":       "graph",
+			"nullZeroValues":   "zero",
+			"opacity":          "1",
+			"isStacked":        false,
+			"yAxisUnit":        "none",
+			"fillSpans":        false,
+			"softMax":          0,
+			"softMin":          0,
+			"stackedBarChart":  false,
+			"query": map[string]interface{}{
+				"id":         "A",
+				"queryType":  "builder",
+				"promql":     []interface{}{},
+				"clickhouse_sql": []interface{}{},
+				"builder": map[string]interface{}{
+					"queryData":     []interface{}{},
+					"queryFormulas": []interface{}{},
+				},
+			},
+		})
+		// normalize layout keys to h,i,w,x,y
+		layout = append(layout, map[string]interface{}{
+			"i":      id,
+			"x":      li["x"],
+			"y":      li["y"],
+			"w":      li["w"],
+			"h":      li["h"],
+			"moved":  false,
+			"static": false,
+		})
+	}
+
+	return &Dashboard{
+		CollapsableRowsMigrated: true,
+		Description:             p.Description + " [plugin-stub-widgets]",
+		Layout:                  layout,
+		Name:                    p.Title,
+		Title:                   p.Title,
+		Tags:                    p.Tags,
+		UploadedGrafana:         false,
+		Variables:               map[string]interface{}{},
+		Version:                 "v4",
+		Widgets:                 widgets,
+		PanelMap:                map[string]interface{}{},
+	}
+}

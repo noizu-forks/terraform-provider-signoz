@@ -134,11 +134,7 @@ func (r *pluginDashboardResource) Schema(_ context.Context, _ resource.SchemaReq
 								Attributes: map[string]schema.Attribute{
 									"id": schema.StringAttribute{
 										Optional:            true,
-										Computed:            true,
-										MarkdownDescription: "Stable panel id (UUID). Auto-generated if omitted.",
-										PlanModifiers: []planmodifier.String{
-											stringplanmodifier.UseStateForUnknown(),
-										},
+										MarkdownDescription: "Stable panel id (UUID). Auto-generated at apply time if omitted (not stored as computed state).",
 									},
 									"title": schema.StringAttribute{
 										Required: true,
@@ -202,15 +198,28 @@ func (r *pluginDashboardResource) Create(ctx context.Context, req resource.Creat
 		return
 	}
 
-	payload, doc, diags := planToV2(ctx, plan)
+	pd, doc, diags := planToPluginDashboard(ctx, plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	created, err := r.client.CreateDashboardV2(ctx, payload)
+	// Prefer classic v1 API (works on stock SigNoz 0.133+) with plugin metadata
+	// embedded in widget descriptions. Fall back to V2 if available.
+	v1 := pd.ToDashboardV1()
+	created, err := r.client.CreateDashboard(ctx, v1)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating plugin dashboard", err.Error())
+		// try V2
+		v2 := pd.ToDashboardV2()
+		createdV2, err2 := r.client.CreateDashboardV2(ctx, v2)
+		if err2 != nil {
+			resp.Diagnostics.AddError("Error creating plugin dashboard",
+				fmt.Sprintf("v1: %v; v2: %v", err, err2))
+			return
+		}
+		plan.ID = types.StringValue(createdV2.ID)
+		plan.Document = types.StringValue(doc)
+		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 		return
 	}
 
@@ -226,7 +235,8 @@ func (r *pluginDashboardResource) Read(ctx context.Context, req resource.ReadReq
 		return
 	}
 
-	got, err := r.client.GetDashboardV2(ctx, state.ID.ValueString())
+	// Read via v1 (primary host path for plugin stub dashboards).
+	got, err := r.client.GetDashboard(ctx, state.ID.ValueString())
 	if err != nil {
 		if strings.Contains(err.Error(), "404") || strings.Contains(strings.ToLower(err.Error()), "not found") {
 			resp.State.RemoveResource(ctx)
@@ -235,18 +245,16 @@ func (r *pluginDashboardResource) Read(ctx context.Context, req resource.ReadReq
 		addErr(&resp.Diagnostics, err, operationRead, SigNozPluginDashboard)
 		return
 	}
-	if got.Title != "" {
-		state.Title = types.StringValue(got.Title)
+	if got.Data.Title != "" {
+		state.Title = types.StringValue(got.Data.Title)
 	}
-	if got.Description != "" {
-		state.Description = types.StringValue(got.Description)
+	if got.Data.Description != "" {
+		// strip our suffix for state stability if present
+		desc := strings.TrimSuffix(got.Data.Description, " [plugin-stub-widgets]")
+		state.Description = types.StringValue(desc)
 	}
-	// Keep planned pages/panels as source of truth; remote round-trip of nested
-	// layout is lossy across SigNoz versions. Refresh document snapshot only.
-	if got.Data != nil {
-		if b, err := json.MarshalIndent(got.Data, "", "  "); err == nil {
-			state.Document = types.StringValue(string(b))
-		}
+	if b, err := json.MarshalIndent(got.Data, "", "  "); err == nil {
+		state.Document = types.StringValue(string(b))
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -263,7 +271,7 @@ func (r *pluginDashboardResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
-	payload, doc, diags := planToV2(ctx, plan)
+	pd, doc, diags := planToPluginDashboard(ctx, plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -273,9 +281,14 @@ func (r *pluginDashboardResource) Update(ctx context.Context, req resource.Updat
 	if id == "" {
 		id = plan.ID.ValueString()
 	}
-	if err := r.client.UpdateDashboardV2(ctx, id, payload); err != nil {
-		resp.Diagnostics.AddError("Error updating plugin dashboard", err.Error())
-		return
+	v1 := pd.ToDashboardV1()
+	if err := r.client.UpdateDashboard(ctx, id, v1); err != nil {
+		v2 := pd.ToDashboardV2()
+		if err2 := r.client.UpdateDashboardV2(ctx, id, v2); err2 != nil {
+			resp.Diagnostics.AddError("Error updating plugin dashboard",
+				fmt.Sprintf("v1: %v; v2: %v", err, err2))
+			return
+		}
 	}
 	plan.ID = types.StringValue(id)
 	plan.Document = types.StringValue(doc)
@@ -301,7 +314,7 @@ func (r *pluginDashboardResource) ImportState(ctx context.Context, req resource.
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func planToV2(ctx context.Context, plan pluginDashboardModel) (model.DashboardV2, string, diag.Diagnostics) {
+func planToPluginDashboard(ctx context.Context, plan pluginDashboardModel) (model.PluginDashboard, string, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	pd := model.PluginDashboard{
 		Title:       plan.Title.ValueString(),
@@ -316,7 +329,7 @@ func planToV2(ctx context.Context, plan pluginDashboardModel) (model.DashboardV2
 
 	if len(plan.Pages) == 0 {
 		diags.AddError("Invalid plugin dashboard", "At least one page { ... } block is required.")
-		return model.DashboardV2{}, "", diags
+		return model.PluginDashboard{}, "", diags
 	}
 
 	for _, page := range plan.Pages {
@@ -340,11 +353,16 @@ func planToV2(ctx context.Context, plan pluginDashboardModel) (model.DashboardV2
 			if !panel.ConfigKeys.IsNull() && !panel.ConfigKeys.IsUnknown() {
 				diags.Append(panel.ConfigKeys.ElementsAs(ctx, &cfgKeys, false)...)
 			}
+			// Fill element from devops catalog when omitted/mismatch-empty
+			el := panel.Element.ValueString()
+			if el == "" {
+				el = model.ResolveElement(panel.PluginID.ValueString())
+			}
 			pp.Panels = append(pp.Panels, model.PluginPanel{
 				ID:         panel.ID.ValueString(),
 				Title:      panel.Title.ValueString(),
 				PluginID:   panel.PluginID.ValueString(),
-				Element:    panel.Element.ValueString(),
+				Element:    el,
 				Attributes: attrs,
 				Properties: props,
 				ConfigKeys: cfgKeys,
@@ -357,15 +375,14 @@ func planToV2(ctx context.Context, plan pluginDashboardModel) (model.DashboardV2
 		pd.Pages = append(pd.Pages, pp)
 	}
 	if diags.HasError() {
-		return model.DashboardV2{}, "", diags
+		return model.PluginDashboard{}, "", diags
 	}
 
-	v2 := pd.ToDashboardV2()
-	doc, err := v2.ToJSON()
+	doc, err := pd.ToDashboardV2().ToJSON()
 	if err != nil {
 		diags.AddError("Failed to marshal dashboard document", err.Error())
-		return model.DashboardV2{}, "", diags
+		return model.PluginDashboard{}, "", diags
 	}
-	tflog.Debug(ctx, "Built plugin dashboard document", map[string]any{"title": v2.Title})
-	return v2, doc, diags
+	tflog.Debug(ctx, "Built plugin dashboard document", map[string]any{"title": pd.Title})
+	return pd, doc, diags
 }

@@ -129,9 +129,9 @@ func TestDataRetention_UnmarshalFromAPI(t *testing.T) {
 
 func TestDataRetentionUpdate_JSONSerialization(t *testing.T) {
 	update := DataRetentionUpdate{
-		Type:                "metrics",
-		Duration:            "720h",
-		ColdStorageDuration: "360h",
+		Type:                   "metrics",
+		DurationHrs:            720,
+		ColdStorageDurationHrs: 360,
 	}
 
 	data, err := json.Marshal(update)
@@ -148,19 +148,19 @@ func TestDataRetentionUpdate_JSONSerialization(t *testing.T) {
 	if update2.Type != "metrics" {
 		t.Errorf("Type: expected metrics, got %s", update2.Type)
 	}
-	if update2.Duration != "720h" {
-		t.Errorf("Duration: expected 720h, got %s", update2.Duration)
+	if update2.DurationHrs != 720 {
+		t.Errorf("DurationHrs: expected 720, got %d", update2.DurationHrs)
 	}
-	if update2.ColdStorageDuration != "360h" {
-		t.Errorf("ColdStorageDuration: expected 360h, got %s", update2.ColdStorageDuration)
+	if update2.ColdStorageDurationHrs != 360 {
+		t.Errorf("ColdStorageDurationHrs: expected 360, got %d", update2.ColdStorageDurationHrs)
 	}
 }
 
 func TestDataRetentionUpdate_JSONFieldNames(t *testing.T) {
 	update := DataRetentionUpdate{
-		Type:                "logs",
-		Duration:            "168h",
-		ColdStorageDuration: "72h",
+		Type:                   "logs",
+		DurationHrs:            168,
+		ColdStorageDurationHrs: 72,
 	}
 
 	data, err := json.Marshal(update)
@@ -174,7 +174,7 @@ func TestDataRetentionUpdate_JSONFieldNames(t *testing.T) {
 		t.Fatalf("Unmarshal to map failed: %v", err)
 	}
 
-	for _, field := range []string{"type", "duration", "cold_storage_duration"} {
+	for _, field := range []string{"type", "duration_hrs", "cold_storage_duration_hrs"} {
 		if _, ok := raw[field]; !ok {
 			t.Errorf("expected JSON field %q not found", field)
 		}
