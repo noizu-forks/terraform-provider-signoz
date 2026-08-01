@@ -9,6 +9,12 @@
 
 # Terraform SigNoz Provider
 
+> **noizu-forks / Lacrosse:** checked out as SSH submodule  
+> `repos/terraform-provider-signoz` → `git@github.com:noizu-forks/terraform-provider-signoz.git`  
+> Extension resource: **`signoz_plugin_dashboard`** — V2 dashboards with WebComponent plugin pages  
+> (`signoz/WebComponentPanel`). See `docs/resources/plugin_dashboard.md` and Lacrosse  
+> `terraform/signoz-dashboards/`.
+
 The **SigNoz Provider** enables [Terraform](https://terraform.io) to manage [SigNoz](https://signoz.io) resources.
 
 ## Requirements

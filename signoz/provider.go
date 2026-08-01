@@ -177,6 +177,7 @@ func (p *signozProvider) Resources(_ context.Context) []func() resource.Resource
 	return []func() resource.Resource{
 		signozresource.NewAlertResource,
 		signozresource.NewDashboardResource,
+		signozresource.NewPluginDashboardResource,
 		signozresource.NewNotificationChannelResource,
 		signozresource.NewRoutePolicyResource,
 		signozresource.NewDowntimeScheduleResource,

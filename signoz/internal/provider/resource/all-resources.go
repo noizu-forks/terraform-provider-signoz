@@ -1,8 +1,9 @@
 package resource
 
 const (
-	SigNozAlert     = "signoz_alert"
-	SigNozDashboard = "signoz_dashboard"
+	SigNozAlert           = "signoz_alert"
+	SigNozDashboard       = "signoz_dashboard"
+	SigNozPluginDashboard = "signoz_plugin_dashboard"
 
 	operationCreate = "create"
 	operationRead   = "read"
