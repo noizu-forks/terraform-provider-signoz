@@ -141,16 +141,16 @@ func TestGetDataRetention_MergesV1AndV2(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v1/settings/ttl" && r.URL.Query().Get("type") == "metrics":
-			writeJSON(w, http.StatusOK, `{"status":"success","data":{"expected_metrics_ttl_duration_hrs":720,"expected_metrics_move_ttl_duration_hrs":168}}`)
+			writeJSON(w, http.StatusOK, `{"expected_metrics_ttl_duration_hrs":720,"expected_metrics_move_ttl_duration_hrs":168}`)
 
 		case r.URL.Path == "/api/v1/settings/ttl" && r.URL.Query().Get("type") == "logs":
-			writeJSON(w, http.StatusOK, `{"status":"success","data":{"expected_logs_ttl_duration_hrs":999,"expected_logs_move_ttl_duration_hrs":99}}`)
+			writeJSON(w, http.StatusOK, `{"expected_logs_ttl_duration_hrs":999,"expected_logs_move_ttl_duration_hrs":99}`)
 
 		case r.URL.Path == "/api/v1/settings/ttl" && r.URL.Query().Get("type") == "traces":
-			writeJSON(w, http.StatusOK, `{"status":"success","data":{"expected_traces_ttl_duration_hrs":336,"expected_traces_move_ttl_duration_hrs":0}}`)
+			writeJSON(w, http.StatusOK, `{"expected_traces_ttl_duration_hrs":336,"expected_traces_move_ttl_duration_hrs":0}`)
 
 		case r.URL.Path == "/api/v2/settings/ttl":
-			writeJSON(w, http.StatusOK, `{"status":"success","data":{"version":"v2","status":"success","default_ttl_days":15,"cold_storage_volume":"s3-volume","cold_storage_ttl_days":3}}`)
+			writeJSON(w, http.StatusOK, `{"version":"v2","status":"success","default_ttl_days":15,"cold_storage_volume":"s3-volume","cold_storage_ttl_days":3}`)
 
 		default:
 			http.NotFound(w, r)
@@ -183,7 +183,7 @@ func TestGetDataRetention_V2UnavailableKeepsV1Logs(t *testing.T) {
 			notFound(w)
 			return
 		}
-		writeJSON(w, http.StatusOK, `{"status":"success","data":{"expected_`+r.URL.Query().Get("type")+`_ttl_duration_hrs":48,"expected_`+r.URL.Query().Get("type")+`_move_ttl_duration_hrs":0}}`)
+		writeJSON(w, http.StatusOK, `{"expected_`+r.URL.Query().Get("type")+`_ttl_duration_hrs":48,"expected_`+r.URL.Query().Get("type")+`_move_ttl_duration_hrs":0}`)
 	})
 
 	client := newTestClient(t, handler)

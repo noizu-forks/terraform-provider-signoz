@@ -24,11 +24,16 @@ type DataRetentionUpdate struct {
 }
 
 // CustomRetentionRule is a per-condition log retention rule; not managed by
-// the provider (an empty list is sent and preserved server-side).
+// the provider (an empty list is sent — empty ttlConditions WIPES any
+// existing server-side rules, it does not preserve them).
 type CustomRetentionRule struct {
-	ColumnName string `json:"columnName"`
-	Operator   string `json:"operator"`
-	Value      string `json:"value"`
+	Filters []FilterCondition `json:"conditions"`
+	TTLDays int               `json:"ttlDays"`
+}
+
+type FilterCondition struct {
+	Key    string   `json:"key"`
+	Values []string `json:"values"`
 }
 
 // CustomRetentionTTLParams is the POST /api/v2/settings/ttl body (logs only).

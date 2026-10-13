@@ -19,20 +19,6 @@ const (
 	dataRetentionV2Path = "api/v2/settings/ttl"
 )
 
-// dataRetentionResponse maps the GET response envelope:
-// {"status":"success","data":{...expected_* fields...}}.
-type dataRetentionResponse struct {
-	Status string              `json:"status"`
-	Data   model.DataRetention `json:"data"`
-}
-
-// customRetentionResponse maps the GET /api/v2/settings/ttl envelope
-// (logs-only custom retention). Days on the wire; converted to hours here.
-type customRetentionResponse struct {
-	Status string                               `json:"status"`
-	Data   model.CustomRetentionTTLResponseData `json:"data"`
-}
-
 // GetDataRetention returns the current data retention settings: one v1 GET per
 // signal type, with logs overridden by the v2 custom-retention values when the
 // server answers v2. A v2 4xx (older server, no custom retention) keeps the
@@ -65,21 +51,21 @@ func (c *Client) GetDataRetention(ctx context.Context) (*model.DataRetention, er
 			return nil, err
 		}
 
-		var resp dataRetentionResponse
+		var resp model.DataRetention
 		if err := json.Unmarshal(body, &resp); err != nil {
 			return nil, fmt.Errorf("error parsing %s retention response: %w", signalType, err)
 		}
 
 		switch signalType {
 		case "metrics":
-			result.MetricsTTLDurationHrs = resp.Data.MetricsTTLDurationHrs
-			result.MetricsMoveTTLDurationHrs = resp.Data.MetricsMoveTTLDurationHrs
+			result.MetricsTTLDurationHrs = resp.MetricsTTLDurationHrs
+			result.MetricsMoveTTLDurationHrs = resp.MetricsMoveTTLDurationHrs
 		case "logs":
-			result.LogsTTLDurationHrs = resp.Data.LogsTTLDurationHrs
-			result.LogsMoveTTLDurationHrs = resp.Data.LogsMoveTTLDurationHrs
+			result.LogsTTLDurationHrs = resp.LogsTTLDurationHrs
+			result.LogsMoveTTLDurationHrs = resp.LogsMoveTTLDurationHrs
 		case "traces":
-			result.TracesTTLDurationHrs = resp.Data.TracesTTLDurationHrs
-			result.TracesMoveTTLDurationHrs = resp.Data.TracesMoveTTLDurationHrs
+			result.TracesTTLDurationHrs = resp.TracesTTLDurationHrs
+			result.TracesMoveTTLDurationHrs = resp.TracesMoveTTLDurationHrs
 		}
 	}
 
@@ -117,21 +103,19 @@ func (c *Client) overrideLogsWithCustomRetention(ctx context.Context, result *mo
 		return err
 	}
 
-	var resp customRetentionResponse
+	var resp model.CustomRetentionTTLResponseData
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return fmt.Errorf("error parsing logs custom retention response: %w", err)
 	}
 
-	if resp.Status == "success" {
-		moveHrs := 0
+	moveHrs := 0
 
-		if resp.Data.ColdStorageTTLDays > 0 {
-			moveHrs = int(resp.Data.ColdStorageTTLDays) * 24
-		}
-
-		result.LogsTTLDurationHrs = int(resp.Data.DefaultTTLDays) * 24
-		result.LogsMoveTTLDurationHrs = moveHrs
+	if resp.ColdStorageTTLDays > 0 {
+		moveHrs = int(resp.ColdStorageTTLDays) * 24
 	}
+
+	result.LogsTTLDurationHrs = int(resp.DefaultTTLDays) * 24
+	result.LogsMoveTTLDurationHrs = moveHrs
 
 	return nil
 }
@@ -152,7 +136,8 @@ func (c *Client) SetDataRetention(ctx context.Context, payload *model.DataRetent
 		v2Body := model.CustomRetentionTTLParams{
 			Type:           "logs",
 			DefaultTTLDays: payload.DurationHrs / 24,
-			TTLConditions:  []model.CustomRetentionRule{},
+			// Empty ttlConditions WIPES any existing server-side custom retention rules.
+			TTLConditions: []model.CustomRetentionRule{},
 		}
 
 		if payload.ColdStorageVolume != "" {
