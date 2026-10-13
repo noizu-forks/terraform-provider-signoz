@@ -24,12 +24,17 @@ const (
 // rebuilt from a server response via FromGettable. Image is server-owned: it
 // only ever flows from the live dashboard into the next PUT (see
 // CarryServerPreserved).
+// PluginDashboard is the provider-shaped view of a v2 dashboard. SpecLinks is
+// not a TF attribute: it holds the server's spec-level links so they survive
+// an update (CarryServerPreserved), exactly like per-panel links.
 type PluginDashboard struct {
 	Title       string       `json:"title"`
 	Description string       `json:"description,omitempty"`
 	Image       string       `json:"image,omitempty"`
 	Tags        []string     `json:"tags,omitempty"`
 	Pages       []PluginPage `json:"pages"`
+
+	SpecLinks []map[string]any `json:"-"`
 }
 
 // PluginPage groups plugin panels (one Grid layout on the server).
@@ -117,6 +122,7 @@ type DashboardSpecV2 struct {
 	Layouts         []LayoutV2         `json:"layouts"`
 	Duration        string             `json:"duration,omitempty"`
 	RefreshInterval string             `json:"refreshInterval,omitempty"`
+	Links           []map[string]any   `json:"links,omitzero"`
 }
 
 // DisplayV2 mirrors dashboardtypes.Display (name required, description always
@@ -292,6 +298,8 @@ func (p PluginDashboard) ToPostable() PostableDashboardV2 {
 		postable.Spec.Layouts = append(postable.Spec.Layouts, layout)
 	}
 
+	postable.Spec.Links = p.SpecLinks
+
 	return postable
 }
 
@@ -309,10 +317,11 @@ func (p PluginDashboard) ToUpdatable(name string) UpdatableDashboardV2 {
 }
 
 // CarryServerPreserved copies the fields the provider does not manage — the
-// dashboard image and each panel's links — from the server's view onto p,
-// keyed by panel id, so the next PUT does not blank them.
+// dashboard image, the spec-level links and each panel's links — from the
+// server's view onto p, keyed by panel id, so the next PUT does not blank them.
 func (p *PluginDashboard) CarryServerPreserved(server PluginDashboard) {
 	p.Image = server.Image
+	p.SpecLinks = server.SpecLinks
 
 	links := map[string][]map[string]any{}
 	for _, page := range server.Pages {
@@ -341,6 +350,7 @@ func FromGettable(g GettableDashboardV2) PluginDashboard {
 		Description: g.Spec.Display.Description,
 		Image:       g.Image,
 		Tags:        TagsFromGettable(g.Tags),
+		SpecLinks:   g.Spec.Links,
 	}
 
 	for _, layout := range g.Spec.Layouts {

@@ -222,6 +222,7 @@ func TestPluginDashboard_CarryServerPreserved(t *testing.T) {
 		Image: "icon-dashboards/fleet.svg",
 	}
 	server.Spec.Display = DisplayV2{Name: "Fleet DevOps"}
+	server.Spec.Links = []map[string]any{{"name": "docs", "url": "https://docs.example"}}
 	server.Spec.Panels = map[string]PanelV2{
 		"fixed01": {
 			Kind: PanelEnvelopeKind,
@@ -277,6 +278,9 @@ func TestPluginDashboard_CarryServerPreserved(t *testing.T) {
 	}
 	if got := up.Spec.Panels["fixed01"].Spec.Links; len(got) != 1 {
 		t.Fatalf("updatable links: %#v", got)
+	}
+	if got := up.Spec.Links; len(got) != 1 || got[0]["url"] != "https://docs.example" {
+		t.Fatalf("spec-level links not carried: %#v", got)
 	}
 }
 
