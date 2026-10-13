@@ -78,34 +78,46 @@ func (c *Client) GetDataRetention(ctx context.Context) (*model.DataRetention, er
 	return result, nil
 }
 
-// overrideLogsWithCustomRetention replaces the logs hours with the v2 custom
-// retention values (days → hours).
-func (c *Client) overrideLogsWithCustomRetention(ctx context.Context, result *model.DataRetention) error {
+// getCustomRetentionTTL GETs /api/v2/settings/ttl. A nil result with no error
+// means the endpoint is unavailable (4xx — older server without custom
+// retention); callers fall back to the v1 values.
+func (c *Client) getCustomRetentionTTL(ctx context.Context) (*model.CustomRetentionTTLResponseData, error) {
 	reqURL, err := url.JoinPath(c.hostURL.String(), dataRetentionV2Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	body, err := c.doRequest(ctx, req)
 	if err != nil {
 		var apiErr *apiclients.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
-			tflog.Debug(ctx, "GetDataRetention: v2 custom retention unavailable, keeping v1 logs values", map[string]any{
+			tflog.Debug(ctx, "v2 custom retention unavailable", map[string]any{
 				"status_code": apiErr.StatusCode,
 			})
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 
 	var resp model.CustomRetentionTTLResponseData
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("error parsing logs custom retention response: %w", err)
+		return nil, fmt.Errorf("error parsing logs custom retention response: %w", err)
+	}
+
+	return &resp, nil
+}
+
+// overrideLogsWithCustomRetention replaces the logs hours with the v2 custom
+// retention values (days → hours).
+func (c *Client) overrideLogsWithCustomRetention(ctx context.Context, result *model.DataRetention) error {
+	resp, err := c.getCustomRetentionTTL(ctx)
+	if err != nil || resp == nil {
+		return err
 	}
 
 	moveHrs := 0
@@ -133,11 +145,24 @@ func (c *Client) SetDataRetention(ctx context.Context, payload *model.DataRetent
 			return err
 		}
 
+		// The server's SetTTLV2 replaces the whole rule set: an empty or
+		// omitted ttlConditions wipes every existing per-condition rule
+		// (validateTTLConditions accepts an empty list). The provider does not
+		// manage rules, so carry the live set back into the body.
+		live, err := c.getCustomRetentionTTL(ctx)
+		if err != nil {
+			return err
+		}
+
+		conditions := []model.CustomRetentionRule{}
+		if live != nil && len(live.TTLConditions) > 0 {
+			conditions = live.TTLConditions
+		}
+
 		v2Body := model.CustomRetentionTTLParams{
 			Type:           "logs",
 			DefaultTTLDays: payload.DurationHrs / 24,
-			// Empty ttlConditions WIPES any existing server-side custom retention rules.
-			TTLConditions: []model.CustomRetentionRule{},
+			TTLConditions:  conditions,
 		}
 
 		if payload.ColdStorageVolume != "" {
