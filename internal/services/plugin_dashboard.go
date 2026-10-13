@@ -143,7 +143,7 @@ func (r *pluginDashboardResource) Schema(_ context.Context, _ resource.SchemaReq
 		},
 		Blocks: map[string]schema.Block{
 			"page": schema.ListNestedBlock{
-				MarkdownDescription: "Dashboard page; maps to one Grid layout.",
+				MarkdownDescription: "Dashboard page; maps to one Grid layout. At least one `page` block is required — the framework lists blocks as optional, but a plan with no page fails validation.",
 				NestedObject: schema.NestedBlockObject{
 					Attributes: map[string]schema.Attribute{
 						"name": schema.StringAttribute{
