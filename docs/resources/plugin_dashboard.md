@@ -101,7 +101,7 @@ terraform import signoz_plugin_dashboard.hello 19da733c-f079-4c74-9a3a-24dfe4d8c
 ### Optional
 
 - `description` (String) Dashboard description.
-- `page` (Block List) Dashboard page; maps to one Grid layout. (see [below for nested schema](#nestedblock--page))
+- `page` (Block List) Dashboard page; maps to one Grid layout. At least one `page` block is required — the framework lists blocks as optional, but a plan with no page fails validation. (see [below for nested schema](#nestedblock--page))
 - `tags` (List of String) Tags. A plain string maps to tag key `tag`; use `key:value` for any other key.
 
 ### Read-Only
