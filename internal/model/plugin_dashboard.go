@@ -21,10 +21,13 @@ const (
 
 // PluginDashboard is a high-level dashboard built from plugin pages/panels.
 // It is expanded into a SigNoz v2 dashboard (Perses spec) via ToPostable and
-// rebuilt from a server response via FromGettable.
+// rebuilt from a server response via FromGettable. Image is server-owned: it
+// only ever flows from the live dashboard into the next PUT (see
+// CarryServerPreserved).
 type PluginDashboard struct {
 	Title       string       `json:"title"`
 	Description string       `json:"description,omitempty"`
+	Image       string       `json:"image,omitempty"`
 	Tags        []string     `json:"tags,omitempty"`
 	Pages       []PluginPage `json:"pages"`
 }
@@ -35,7 +38,8 @@ type PluginPage struct {
 	Panels []PluginPanel `json:"panels"`
 }
 
-// PluginPanel is one WebComponent plugin instance on a page.
+// PluginPanel is one WebComponent plugin instance on a page. Links is
+// server-owned and carried through updates opaquely.
 type PluginPanel struct {
 	ID            string                 `json:"id,omitempty"`
 	Title         string                 `json:"title"`
@@ -45,6 +49,7 @@ type PluginPanel struct {
 	Attributes    map[string]string      `json:"attributes,omitempty"`
 	Properties    map[string]interface{} `json:"properties,omitempty"`
 	ConfigKeys    []string               `json:"config_keys,omitempty"`
+	Links         []map[string]any       `json:"links,omitempty"`
 	X             int                    `json:"x"`
 	Y             int                    `json:"y"`
 	W             int                    `json:"w"`
@@ -94,6 +99,7 @@ type GettableDashboardV2 struct {
 	Locked        bool            `json:"locked"`
 	Source        string          `json:"source,omitempty"`
 	SchemaVersion string          `json:"schemaVersion,omitempty"`
+	Image         string          `json:"image"`
 	Name          string          `json:"name"`
 	Tags          []GettableTag   `json:"tags"`
 	Spec          DashboardSpecV2 `json:"spec"`
@@ -125,12 +131,13 @@ type PanelV2 struct {
 }
 
 // PanelSpecV2 mirrors dashboardtypes.PanelSpec. WebComponent panels must carry
-// an empty (non-null) queries list; queries are decoded opaquely so a read of
-// a panel edited elsewhere still round-trips.
+// an empty (non-null) queries list; queries and links are decoded opaquely so a
+// read of a panel edited elsewhere still round-trips.
 type PanelSpecV2 struct {
 	Display DisplayV2        `json:"display"`
 	Plugin  PanelPluginV2    `json:"plugin"`
 	Queries []map[string]any `json:"queries"`
+	Links   []map[string]any `json:"links,omitzero"`
 }
 
 // PanelPluginV2 mirrors dashboardtypes.PanelPlugin.
@@ -270,6 +277,7 @@ func (p PluginDashboard) ToPostable() PostableDashboardV2 {
 						},
 					},
 					Queries: []map[string]any{},
+					Links:   panel.Links,
 				},
 			}
 			layout.Spec.Items = append(layout.Spec.Items, GridItemV2{
@@ -296,6 +304,29 @@ func (p PluginDashboard) ToUpdatable(name string) UpdatableDashboardV2 {
 	}
 }
 
+// CarryServerPreserved copies the fields the provider does not manage — the
+// dashboard image and each panel's links — from the server's view onto p,
+// keyed by panel id, so the next PUT does not blank them.
+func (p *PluginDashboard) CarryServerPreserved(server PluginDashboard) {
+	p.Image = server.Image
+
+	links := map[string][]map[string]any{}
+	for _, page := range server.Pages {
+		for _, panel := range page.Panels {
+			if panel.ID != "" {
+				links[panel.ID] = panel.Links
+			}
+		}
+	}
+
+	for pi := range p.Pages {
+		for fi := range p.Pages[pi].Panels {
+			panel := &p.Pages[pi].Panels[fi]
+			panel.Links = links[panel.ID]
+		}
+	}
+}
+
 // FromGettable rebuilds the TF-shaped dashboard from a server response: title
 // and description from spec.display, tags reversed from {key,value}, pages
 // from layouts in order, and each panel from its layout item plus the panels
@@ -304,6 +335,7 @@ func FromGettable(g GettableDashboardV2) PluginDashboard {
 	pd := PluginDashboard{
 		Title:       g.Spec.Display.Name,
 		Description: g.Spec.Display.Description,
+		Image:       g.Image,
 		Tags:        TagsFromGettable(g.Tags),
 	}
 

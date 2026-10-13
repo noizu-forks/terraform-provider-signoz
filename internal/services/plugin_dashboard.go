@@ -334,6 +334,146 @@ func (r *pluginDashboardResource) ImportState(ctx context.Context, req resource.
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
+// ValidateConfig validates grid and tag constraints at plan time.
+func (r *pluginDashboardResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var plan pluginDashboardModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	const (
+		gridColumnCount       = 12
+		maxItemsPerGridLayout = 100
+		maxLayoutsPerDashboard = 500
+		maxTagsPerDashboard   = 10
+	)
+
+	reservedTagKeys := map[string]bool{
+		"name":        true,
+		"description": true,
+		"created_at":  true,
+		"updated_at":  true,
+		"created_by":  true,
+		"locked":      true,
+		"source":      true,
+	}
+
+	if len(plan.Pages) > maxLayoutsPerDashboard {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("page"),
+			"Too many layouts",
+			fmt.Sprintf("Dashboard contains %d pages, but maximum is %d.", len(plan.Pages), maxLayoutsPerDashboard),
+		)
+	}
+
+	var tagCount int
+	if !plan.Tags.IsNull() && !plan.Tags.IsUnknown() {
+		var tags []string
+		resp.Diagnostics.Append(plan.Tags.ElementsAs(ctx, &tags, false)...)
+		tagCount = len(tags)
+
+		if tagCount > maxTagsPerDashboard {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("tags"),
+				"Too many tags",
+				fmt.Sprintf("Dashboard has %d tags, but maximum is %d.", tagCount, maxTagsPerDashboard),
+			)
+		}
+
+		for i, tag := range tags {
+			key := tag
+			if idx := strings.Index(tag, ":"); idx >= 0 {
+				key = tag[:idx]
+			}
+			normalized := strings.ToLower(strings.TrimSpace(key))
+			if reservedTagKeys[normalized] {
+				resp.Diagnostics.AddAttributeError(
+					path.Root("tags"),
+					"Reserved tag key",
+					fmt.Sprintf("Tag at index %d uses reserved key %q (reserved: name, description, created_at, updated_at, created_by, locked, source).", i, key),
+				)
+			}
+		}
+	}
+
+	for pageIdx, page := range plan.Pages {
+		if len(page.Panels) > maxItemsPerGridLayout {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("page").AtListIndex(pageIdx),
+				"Too many panels",
+				fmt.Sprintf("Page %d contains %d panels, but maximum is %d.", pageIdx, len(page.Panels), maxItemsPerGridLayout),
+			)
+		}
+
+		for panelIdx, panel := range page.Panels {
+			x := panel.X.ValueInt64()
+			y := panel.Y.ValueInt64()
+			w := panel.W.ValueInt64()
+			h := panel.H.ValueInt64()
+
+			panelBasePath := path.Root("page").AtListIndex(pageIdx).AtListIndex(panelIdx)
+
+			if w < 1 {
+				resp.Diagnostics.AddAttributeError(
+					panelBasePath.AtName("w"),
+					"Invalid panel width",
+					fmt.Sprintf("Panel width must be >= 1, got %d.", w),
+				)
+			}
+			if h < 1 {
+				resp.Diagnostics.AddAttributeError(
+					panelBasePath.AtName("h"),
+					"Invalid panel height",
+					fmt.Sprintf("Panel height must be >= 1, got %d.", h),
+				)
+			}
+			if x < 0 {
+				resp.Diagnostics.AddAttributeError(
+					panelBasePath.AtName("x"),
+					"Invalid panel x position",
+					fmt.Sprintf("Panel x position must be >= 0, got %d.", x),
+				)
+			}
+			if y < 0 {
+				resp.Diagnostics.AddAttributeError(
+					panelBasePath.AtName("y"),
+					"Invalid panel y position",
+					fmt.Sprintf("Panel y position must be >= 0, got %d.", y),
+				)
+			}
+			if x+w > gridColumnCount {
+				resp.Diagnostics.AddAttributeError(
+					panelBasePath.AtName("w"),
+					"Panel extends beyond grid",
+					fmt.Sprintf("Panel x + w must be <= %d, but %d + %d = %d.", gridColumnCount, x, w, x+w),
+				)
+			}
+		}
+
+		for i := 0; i < len(page.Panels); i++ {
+			for j := i + 1; j < len(page.Panels); j++ {
+				a := page.Panels[i]
+				b := page.Panels[j]
+
+				ax, ay := a.X.ValueInt64(), a.Y.ValueInt64()
+				aw, ah := a.W.ValueInt64(), a.H.ValueInt64()
+				bx, by := b.X.ValueInt64(), b.Y.ValueInt64()
+				bw, bh := b.W.ValueInt64(), b.H.ValueInt64()
+
+				if ax < bx+bw && bx < ax+aw && ay < by+bh && by < ay+ah {
+					resp.Diagnostics.AddAttributeError(
+						path.Root("page").AtListIndex(pageIdx).AtListIndex(i).AtName("w"),
+						"Overlapping panels",
+						fmt.Sprintf("Panel %d [x=%d, y=%d, w=%d, h=%d] overlaps with panel %d [x=%d, y=%d, w=%d, h=%d].",
+							i, ax, ay, aw, ah, j, bx, by, bw, bh),
+					)
+				}
+			}
+		}
+	}
+}
+
 // resolvePluginVersions pins every panel against the server plugin catalog:
 // an explicit panel version must exist, otherwise the catalog's default
 // manifest fills the version (and the element when the panel omits it).
