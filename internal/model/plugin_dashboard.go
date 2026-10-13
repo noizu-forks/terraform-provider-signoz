@@ -72,6 +72,7 @@ type GettableTag struct {
 // every level with DisallowUnknownFields, so only contract fields exist here.
 type PostableDashboardV2 struct {
 	SchemaVersion string          `json:"schemaVersion"`
+	Image         string          `json:"image"`
 	Name          string          `json:"name"`
 	GenerateName  bool            `json:"generateName"`
 	Tags          []PostableTag   `json:"tags"`
@@ -82,6 +83,7 @@ type PostableDashboardV2 struct {
 // server's DNS name and is immutable — always send the name from state.
 type UpdatableDashboardV2 struct {
 	SchemaVersion string          `json:"schemaVersion"`
+	Image         string          `json:"image"`
 	Name          string          `json:"name"`
 	Tags          []PostableTag   `json:"tags"`
 	Spec          DashboardSpecV2 `json:"spec"`
@@ -230,6 +232,7 @@ func (p PluginDashboard) ToPostable() PostableDashboardV2 {
 	postable := PostableDashboardV2{
 		SchemaVersion: DashboardSchemaVersionV2,
 		GenerateName:  true,
+		Image:         p.Image,
 		Tags:          TagsToPostable(p.Tags),
 		Spec: DashboardSpecV2{
 			Display:   DisplayV2{Name: p.Title, Description: p.Description},
@@ -298,6 +301,7 @@ func (p PluginDashboard) ToUpdatable(name string) UpdatableDashboardV2 {
 	postable := p.ToPostable()
 	return UpdatableDashboardV2{
 		SchemaVersion: DashboardSchemaVersionV2,
+		Image:         postable.Image,
 		Name:          name,
 		Tags:          postable.Tags,
 		Spec:          postable.Spec,
@@ -364,6 +368,7 @@ func FromGettable(g GettableDashboardV2) PluginDashboard {
 				Attributes:    spec.Attributes,
 				Properties:    spec.Properties,
 				ConfigKeys:    spec.ConfigKeys,
+				Links:         panel.Spec.Links,
 				X:             item.X,
 				Y:             item.Y,
 				W:             item.Width,

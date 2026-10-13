@@ -25,9 +25,10 @@ import (
 )
 
 var (
-	_ resource.Resource                = &pluginDashboardResource{}
-	_ resource.ResourceWithConfigure   = &pluginDashboardResource{}
-	_ resource.ResourceWithImportState = &pluginDashboardResource{}
+	_ resource.Resource                   = &pluginDashboardResource{}
+	_ resource.ResourceWithConfigure      = &pluginDashboardResource{}
+	_ resource.ResourceWithImportState    = &pluginDashboardResource{}
+	_ resource.ResourceWithValidateConfig = &pluginDashboardResource{}
 )
 
 // NewPluginDashboardResource manages SigNoz v2 dashboards
@@ -102,7 +103,8 @@ func (r *pluginDashboardResource) Schema(_ context.Context, _ resource.SchemaReq
 		MarkdownDescription: "Creates a SigNoz **v2** dashboard (Perses spec, `schemaVersion v6`) populated with " +
 			"**WebComponent plugin panels** (`signoz/WebComponentPanel`). Panel versions and elements are " +
 			"resolved against the server plugin catalog at apply time. Use this to manage plugin-host " +
-			"dashboards as code (e.g. `plugin_id = \"hello\"`, `element = \"lax-hello-wc\"`).",
+			"dashboards as code — see the shipped devops-status example " +
+			"(`plugin_id = \"devops-status\"`, `element = \"lax-devops-status\"`).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -306,8 +308,14 @@ func (r *pluginDashboardResource) Update(ctx context.Context, req resource.Updat
 		return
 	}
 
+	server, err := r.client.GetDashboardV2(ctx, state.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading plugin dashboard before update", err.Error())
+		return
+	}
+
 	// name is immutable server-side: always send the one from state.
-	updated, err := r.client.UpdateDashboardV2(ctx, state.ID.ValueString(), pd.ToUpdatable(state.Name.ValueString()))
+	updated, err := r.client.UpdateDashboardV2(ctx, state.ID.ValueString(), updatableForUpdate(pd, server, state.Name.ValueString()))
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating plugin dashboard", err.Error())
 		return
@@ -317,6 +325,14 @@ func (r *pluginDashboardResource) Update(ctx context.Context, req resource.Updat
 	refreshed.ID = state.ID
 	refreshed.Name = state.Name
 	resp.Diagnostics.Append(resp.State.Set(ctx, &refreshed)...)
+}
+
+// updatableForUpdate builds the PUT body from the plan, carrying the
+// server-owned fields — the dashboard image and each panel's links — from the
+// live dashboard so the update does not blank them.
+func updatableForUpdate(pd model.PluginDashboard, server *model.GettableDashboardV2, name string) model.UpdatableDashboardV2 {
+	pd.CarryServerPreserved(model.FromGettable(*server))
+	return pd.ToUpdatable(name)
 }
 
 func (r *pluginDashboardResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -334,144 +350,191 @@ func (r *pluginDashboardResource) ImportState(ctx context.Context, req resource.
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-// ValidateConfig validates grid and tag constraints at plan time.
+// ValidateConfig rejects grid and tag violations before apply. The server
+// rejects them at write time; failing at plan time keeps applies clean.
 func (r *pluginDashboardResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var plan pluginDashboardModel
-	resp.Diagnostics.Append(req.Config.Get(ctx, &plan)...)
+	var config pluginDashboardModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	const (
-		gridColumnCount       = 12
-		maxItemsPerGridLayout = 100
-		maxLayoutsPerDashboard = 500
-		maxTagsPerDashboard   = 10
-	)
+	resp.Diagnostics.Append(validatePluginDashboardConfig(ctx, config)...)
+}
 
-	reservedTagKeys := map[string]bool{
-		"name":        true,
-		"description": true,
-		"created_at":  true,
-		"updated_at":  true,
-		"created_by":  true,
-		"locked":      true,
-		"source":      true,
-	}
+const (
+	pluginDashboardGridColumns   = 12
+	pluginDashboardMaxPanelsPage = 100
+	pluginDashboardMaxPages      = 500
+	pluginDashboardMaxTags       = 10
+)
 
-	if len(plan.Pages) > maxLayoutsPerDashboard {
-		resp.Diagnostics.AddAttributeError(
+// reservedTagKeys mirrors the server's reservedDSLKeys: a tag key colliding
+// with a list-query column name would make the dashboard DSL ambiguous, so
+// the server rejects them case-insensitively at write time.
+var reservedTagKeys = map[string]struct{}{
+	"name":        {},
+	"description": {},
+	"created_at":  {},
+	"updated_at":  {},
+	"created_by":  {},
+	"locked":      {},
+	"source":      {},
+}
+
+func validatePluginDashboardConfig(ctx context.Context, config pluginDashboardModel) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	if len(config.Pages) > pluginDashboardMaxPages {
+		diags.AddAttributeError(
 			path.Root("page"),
-			"Too many layouts",
-			fmt.Sprintf("Dashboard contains %d pages, but maximum is %d.", len(plan.Pages), maxLayoutsPerDashboard),
+			"Too many pages",
+			fmt.Sprintf("Dashboard has %d pages, but at most %d are allowed.", len(config.Pages), pluginDashboardMaxPages),
 		)
 	}
 
-	var tagCount int
-	if !plan.Tags.IsNull() && !plan.Tags.IsUnknown() {
+	if !config.Tags.IsNull() && !config.Tags.IsUnknown() {
 		var tags []string
-		resp.Diagnostics.Append(plan.Tags.ElementsAs(ctx, &tags, false)...)
-		tagCount = len(tags)
+		diags.Append(config.Tags.ElementsAs(ctx, &tags, false)...)
 
-		if tagCount > maxTagsPerDashboard {
-			resp.Diagnostics.AddAttributeError(
+		if len(tags) > pluginDashboardMaxTags {
+			diags.AddAttributeError(
 				path.Root("tags"),
 				"Too many tags",
-				fmt.Sprintf("Dashboard has %d tags, but maximum is %d.", tagCount, maxTagsPerDashboard),
+				fmt.Sprintf("Dashboard has %d tags, but at most %d are allowed.", len(tags), pluginDashboardMaxTags),
 			)
 		}
 
 		for i, tag := range tags {
-			key := tag
-			if idx := strings.Index(tag, ":"); idx >= 0 {
-				key = tag[:idx]
+			c := strings.Index(tag, ":")
+			if c < 0 {
+				// Plain strings map to the server key "tag", never reserved.
+				continue
 			}
-			normalized := strings.ToLower(strings.TrimSpace(key))
-			if reservedTagKeys[normalized] {
-				resp.Diagnostics.AddAttributeError(
-					path.Root("tags"),
+
+			key := strings.ToLower(strings.TrimSpace(tag[:c]))
+			if _, reserved := reservedTagKeys[key]; reserved {
+				diags.AddAttributeError(
+					path.Root("tags").AtListIndex(i),
 					"Reserved tag key",
-					fmt.Sprintf("Tag at index %d uses reserved key %q (reserved: name, description, created_at, updated_at, created_by, locked, source).", i, key),
+					fmt.Sprintf("Tag key %q is reserved by the server (reserved: name, description, created_at, updated_at, created_by, locked, source).", key),
 				)
 			}
 		}
 	}
 
-	for pageIdx, page := range plan.Pages {
-		if len(page.Panels) > maxItemsPerGridLayout {
-			resp.Diagnostics.AddAttributeError(
-				path.Root("page").AtListIndex(pageIdx),
+	for pi, page := range config.Pages {
+		if len(page.Panels) > pluginDashboardMaxPanelsPage {
+			diags.AddAttributeError(
+				pagePath(pi),
 				"Too many panels",
-				fmt.Sprintf("Page %d contains %d panels, but maximum is %d.", pageIdx, len(page.Panels), maxItemsPerGridLayout),
+				fmt.Sprintf("Page %q has %d panels, but at most %d are allowed.", page.Name.ValueString(), len(page.Panels), pluginDashboardMaxPanelsPage),
 			)
 		}
 
-		for panelIdx, panel := range page.Panels {
-			x := panel.X.ValueInt64()
-			y := panel.Y.ValueInt64()
-			w := panel.W.ValueInt64()
-			h := panel.H.ValueInt64()
+		rects := make([]gridRect, len(page.Panels))
+		known := make([]bool, len(page.Panels))
+		for fi, panel := range page.Panels {
+			rects[fi], known[fi] = panel.gridRect()
+			if !known[fi] {
+				continue
+			}
 
-			panelBasePath := path.Root("page").AtListIndex(pageIdx).AtListIndex(panelIdx)
+			g := rects[fi]
+			pageName := page.Name.ValueString()
+			title := panel.Title.ValueString()
 
-			if w < 1 {
-				resp.Diagnostics.AddAttributeError(
-					panelBasePath.AtName("w"),
-					"Invalid panel width",
-					fmt.Sprintf("Panel width must be >= 1, got %d.", w),
-				)
+			if g.w < 1 {
+				diags.AddAttributeError(panelPath(pi, fi, "w"), "Invalid panel width",
+					fmt.Sprintf("Panel %q on page %q has width %d; width must be at least 1.", title, pageName, g.w))
 			}
-			if h < 1 {
-				resp.Diagnostics.AddAttributeError(
-					panelBasePath.AtName("h"),
-					"Invalid panel height",
-					fmt.Sprintf("Panel height must be >= 1, got %d.", h),
-				)
+			if g.h < 1 {
+				diags.AddAttributeError(panelPath(pi, fi, "h"), "Invalid panel height",
+					fmt.Sprintf("Panel %q on page %q has height %d; height must be at least 1.", title, pageName, g.h))
 			}
-			if x < 0 {
-				resp.Diagnostics.AddAttributeError(
-					panelBasePath.AtName("x"),
-					"Invalid panel x position",
-					fmt.Sprintf("Panel x position must be >= 0, got %d.", x),
-				)
+			if g.x < 0 {
+				diags.AddAttributeError(panelPath(pi, fi, "x"), "Invalid panel x",
+					fmt.Sprintf("Panel %q on page %q has x %d; x must be at least 0.", title, pageName, g.x))
 			}
-			if y < 0 {
-				resp.Diagnostics.AddAttributeError(
-					panelBasePath.AtName("y"),
-					"Invalid panel y position",
-					fmt.Sprintf("Panel y position must be >= 0, got %d.", y),
-				)
+			if g.y < 0 {
+				diags.AddAttributeError(panelPath(pi, fi, "y"), "Invalid panel y",
+					fmt.Sprintf("Panel %q on page %q has y %d; y must be at least 0.", title, pageName, g.y))
 			}
-			if x+w > gridColumnCount {
-				resp.Diagnostics.AddAttributeError(
-					panelBasePath.AtName("w"),
-					"Panel extends beyond grid",
-					fmt.Sprintf("Panel x + w must be <= %d, but %d + %d = %d.", gridColumnCount, x, w, x+w),
-				)
+			if g.x+g.w > pluginDashboardGridColumns {
+				diags.AddAttributeError(panelPath(pi, fi, "w"), "Panel exceeds grid width",
+					fmt.Sprintf("Panel %q on page %q spans x=%d w=%d, past the %d-column grid (x + w <= %d).",
+						title, pageName, g.x, g.w, pluginDashboardGridColumns, pluginDashboardGridColumns))
 			}
 		}
 
-		for i := 0; i < len(page.Panels); i++ {
-			for j := i + 1; j < len(page.Panels); j++ {
-				a := page.Panels[i]
-				b := page.Panels[j]
+		for i := 0; i < len(rects); i++ {
+			if !known[i] {
+				continue
+			}
+			for j := i + 1; j < len(rects); j++ {
+				if !known[j] {
+					continue
+				}
+				a, b := rects[i], rects[j]
 
-				ax, ay := a.X.ValueInt64(), a.Y.ValueInt64()
-				aw, ah := a.W.ValueInt64(), a.H.ValueInt64()
-				bx, by := b.X.ValueInt64(), b.Y.ValueInt64()
-				bw, bh := b.W.ValueInt64(), b.H.ValueInt64()
-
-				if ax < bx+bw && bx < ax+aw && ay < by+bh && by < ay+ah {
-					resp.Diagnostics.AddAttributeError(
-						path.Root("page").AtListIndex(pageIdx).AtListIndex(i).AtName("w"),
-						"Overlapping panels",
-						fmt.Sprintf("Panel %d [x=%d, y=%d, w=%d, h=%d] overlaps with panel %d [x=%d, y=%d, w=%d, h=%d].",
-							i, ax, ay, aw, ah, j, bx, by, bw, bh),
-					)
+				if a.x < b.x+b.w && b.x < a.x+a.w && a.y < b.y+b.h && b.y < a.y+a.h {
+					diags.AddAttributeError(panelPath(pi, j, ""), "Overlapping panels",
+						fmt.Sprintf("Panel %q [x=%d y=%d w=%d h=%d] overlaps panel %q [x=%d y=%d w=%d h=%d] on page %q.",
+							config.Pages[pi].Panels[j].Title.ValueString(), b.x, b.y, b.w, b.h,
+							config.Pages[pi].Panels[i].Title.ValueString(), a.x, a.y, a.w, a.h,
+							config.Pages[pi].Name.ValueString()))
 				}
 			}
 		}
 	}
+
+	return diags
+}
+
+type gridRect struct {
+	x, y, w, h int64
+}
+
+// gridRect resolves a panel's rectangle the way the plan will: omitted
+// attributes fall back to the schema defaults, which only apply at plan time.
+// known is false while any attribute is still unknown — validation waits for
+// the plan instead of guessing.
+func (panel pluginPanelModel) gridRect() (gridRect, bool) {
+	g := gridRect{w: 6, h: 4}
+
+	for _, c := range []struct {
+		v   types.Int64
+		def int64
+		out *int64
+	}{
+		{panel.X, 0, &g.x},
+		{panel.Y, 0, &g.y},
+		{panel.W, 6, &g.w},
+		{panel.H, 4, &g.h},
+	} {
+		switch {
+		case c.v.IsNull():
+			*c.out = c.def
+		case c.v.IsUnknown():
+			return gridRect{}, false
+		default:
+			*c.out = c.v.ValueInt64()
+		}
+	}
+
+	return g, true
+}
+
+func pagePath(pageIdx int) path.Path {
+	return path.Root("page").AtListIndex(pageIdx)
+}
+
+func panelPath(pageIdx, panelIdx int, attr string) path.Path {
+	p := pagePath(pageIdx).AtName("plugin_panel").AtListIndex(panelIdx)
+	if attr != "" {
+		p = p.AtName(attr)
+	}
+	return p
 }
 
 // resolvePluginVersions pins every panel against the server plugin catalog:
