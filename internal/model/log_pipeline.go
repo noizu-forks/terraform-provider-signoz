@@ -7,18 +7,18 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// LogPipeline model.
+// LogPipeline model matches server contract: pkg/types/pipelinetypes/pipeline.go
 type LogPipeline struct {
 	ID          string                   `json:"id"`
 	Alias       string                   `json:"alias,omitempty"`
 	Name        string                   `json:"name"`
 	Description string                   `json:"description,omitempty"`
 	Enabled     bool                     `json:"enabled"`
-	OrderID     int                      `json:"order_id"`
+	OrderID     int                      `json:"orderId"`
 	Filter      map[string]interface{}   `json:"filter"`
 	Config      []map[string]interface{} `json:"config"`
-	CreatedBy   string                   `json:"created_by,omitempty"`
-	CreatedAt   string                   `json:"created_at,omitempty"`
+	CreatedBy   string                   `json:"createdBy,omitempty"`
+	CreatedAt   string                   `json:"createdAt,omitempty"`
 }
 
 // LogPipelinesPayload is the request/response body for the batch pipeline API.
