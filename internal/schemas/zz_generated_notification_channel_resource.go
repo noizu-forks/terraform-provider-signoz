@@ -5,6 +5,7 @@ package schemas
 import (
 	"context"
 
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 
@@ -38,10 +39,19 @@ func NotificationChannelResourceSchema(ctx context.Context) schema.Schema {
 										ElementType: types.StringType,
 										Optional:    true,
 										Computed:    true,
+										// Server fills email defaults; keep the
+										// state value instead of planning
+										// unknown on every update.
+										PlanModifiers: []planmodifier.Map{
+											mapplanmodifier.UseStateForUnknown(),
+										},
 									},
 									"html": schema.StringAttribute{
 										Optional: true,
 										Computed: true,
+										PlanModifiers: []planmodifier.String{
+											stringplanmodifier.UseStateForUnknown(),
+										},
 									},
 									"send_resolved": schema.BoolAttribute{
 										Optional: true,

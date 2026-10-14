@@ -32,10 +32,12 @@ func ExpandAlertmanagertypesPostableRoutePolicy(ctx context.Context, m schemas.R
 	return &apitypes.AlertmanagertypesPostableRoutePolicy{
 		Channels:    channels,
 		Description: convtypes.StringPointer(m.Description),
-		Expression:  m.Expression.ValueString(),
-		Kind:        kind,
-		Name:        m.Name.ValueString(),
-		Tags:        tags,
+		// Local override: the server echoes expressions verbatim, so the
+		// write path canonicalizes to keep planned values stable.
+		Expression: CanonicalRouteExpression(m.Expression.ValueString()),
+		Kind:       kind,
+		Name:       m.Name.ValueString(),
+		Tags:       tags,
 	}, diags
 }
 
@@ -62,10 +64,12 @@ func FlattenAlertmanagertypesGettableRoutePolicy(ctx context.Context, g *apitype
 	return &schemas.RoutePolicyDataSourceModel{
 		Channels:    channelsFlat,
 		Description: convtypes.StringFromPointer(g.Description),
-		Expression:  types.StringValue(g.Expression),
-		Id:          types.StringValue(g.Id),
-		Kind:        kindFlat,
-		Name:        types.StringValue(g.Name),
-		Tags:        tagsFlat,
+		// Local override: canonicalize on read so expressions written by
+		// older configs or the UI stop churning against canonical configs.
+		Expression: types.StringValue(CanonicalRouteExpression(g.Expression)),
+		Id:         types.StringValue(g.Id),
+		Kind:       kindFlat,
+		Name:       types.StringValue(g.Name),
+		Tags:       tagsFlat,
 	}, diags
 }
