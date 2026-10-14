@@ -6,6 +6,9 @@ import (
 	"context"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
@@ -22,12 +25,22 @@ func RoutePolicyResourceSchema(ctx context.Context) schema.Schema {
 			"description": schema.StringAttribute{
 				Optional: true,
 				Computed: true,
+				// Server-managed default: keep the state value instead of
+				// planning unknown on every update.
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"expression": schema.StringAttribute{
 				Required: true,
 			},
+			// Server assigns the id; PUT updates keep it, so the plan must
+			// not show it as known-after-apply on in-place updates.
 			"id": schema.StringAttribute{
 				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"kind": schema.StringAttribute{
 				Optional: true,
@@ -38,6 +51,9 @@ func RoutePolicyResourceSchema(ctx context.Context) schema.Schema {
 						"policy",
 					),
 				},
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"name": schema.StringAttribute{
 				Required: true,
@@ -46,6 +62,9 @@ func RoutePolicyResourceSchema(ctx context.Context) schema.Schema {
 				ElementType: types.StringType,
 				Optional:    true,
 				Computed:    true,
+				PlanModifiers: []planmodifier.List{
+					listplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}

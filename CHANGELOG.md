@@ -2,6 +2,11 @@
 
 ## 2026-10-14
 
+- `signoz_route_policy` expressions canonicalize on both directions of the wire (`internal/convertors.CanonicalRouteExpression`): the server rewrites legacy `AND`/`OR` to `&&`/`||` on write and reads back verbatim, so a policy stored with the legacy spelling diffed `AND -> &&` on every plan. Quote-aware (single/double/backtick) word-boundary rewrite — quoted literals and identifiers like `ANDROID`/`ORDER` are left alone, whitespace collapsed, idempotent.
+- `signoz_route_policy` `id`/`description`/`kind`/`tags` and the email channel spec's `html`/`headers` pin their state via UseStateForUnknown: every Optional+Computed field went unknown on any in-place update plan, so a description change showed `id`/`tags`/`html`/`headers` as `known after apply` and non-converging diffs. Verified against a live server: update plans carry no unknowns, post-update plans are clean, ids stay stable (PUT + re-GET, no recreate).
+
+## 2026-10-13
+
 - `signoz_log_pipeline` survives the server reassigning pipeline IDs on every batch save: update and delete match the row by its stable alias/name (delete previously no-oped silently and update failed with "not found in response"), Create/Read keep the plan's filter shape (re-serializing added explicit-zero keys the config never had), and `ModifyPlan` unpins `id`/`created_at`/`created_by` when a change is planned. `order_id` became Optional+Computed — the server assigns the position and renumbers across pipelines, so a required user-pinned value diffed forever.
 - `signoz_alert` Create now copies the server's `rule_type` into state: the attribute is Optional+Computed with no Default, so a config that omits it stayed unknown after apply and failed with "Provider returned invalid result object". The other server-supplied fields keep their plan-time defaults.
 - `signoz_log_pipeline` `created_at`/`created_by` pin their state via UseStateForUnknown: they were planned unknown on every run, so a freshly created pipeline diffed forever.
