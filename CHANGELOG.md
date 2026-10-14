@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-14
+
+- `signoz_log_pipeline` survives the server reassigning pipeline IDs on every batch save: update and delete match the row by its stable alias/name (delete previously no-oped silently and update failed with "not found in response"), Create/Read keep the plan's filter shape (re-serializing added explicit-zero keys the config never had), and `ModifyPlan` unpins `id`/`created_at`/`created_by` when a change is planned. `order_id` became Optional+Computed — the server assigns the position and renumbers across pipelines, so a required user-pinned value diffed forever.
+- `signoz_alert` Create now copies the server's `rule_type` into state: the attribute is Optional+Computed with no Default, so a config that omits it stayed unknown after apply and failed with "Provider returned invalid result object". The other server-supplied fields keep their plan-time defaults.
+- `signoz_log_pipeline` `created_at`/`created_by` pin their state via UseStateForUnknown: they were planned unknown on every run, so a freshly created pipeline diffed forever.
+- RequiresReplace on `signoz_user.email` and `signoz_auth_domain.name` plus `signoz_notification_channel.name`: the server's PUT endpoints accept these changes with a 204 but keep the stored value (verified against a live server), so an in-place update plan produced "Provider produced inconsistent result after apply" — a rename now plans destroy/create instead. Generated schemas patched pending the upstream skaff knob for per-attribute replacement. `signoz_route_policy.name` was checked and found genuinely updatable, so it stays in-place.
+- `signoz_plugin_dashboard.document` no longer pins the pre-update document via UseStateForUnknown: a title/panel update changed the server document, and the stale planned value failed the update with "Provider produced inconsistent result after apply". The attribute now plans unknown on every change and settles from the apply response.
+
 ## 2026-10-13
 
 - `signoz_data_retention` logs updates no longer wipe server-side custom retention rules: the server's `SetTTLV2` replaces the whole rule set (an empty or omitted `ttlConditions` passes `validateTTLConditions` and rebuilds the retention expression default-only), so the client now reads the live rule set via `GET /api/v2/settings/ttl` and carries it back into the POST body (kept verbatim when present; a missing v2 endpoint still posts). `model.CustomRetentionRule` documented as the server-mirrored carry-through type.
