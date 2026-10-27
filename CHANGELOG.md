@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026-10-28
+- docs: add AGENT-README.md (agent orientation)
+
 ## 2026-10-14
 
 - `signoz_route_policy` expressions canonicalize on both directions of the wire (`internal/convertors.CanonicalRouteExpression`): the server rewrites legacy `AND`/`OR` to `&&`/`||` on write and reads back verbatim, so a policy stored with the legacy spelling diffed `AND -> &&` on every plan. Quote-aware (single/double/backtick) word-boundary rewrite — quoted literals and identifiers like `ANDROID`/`ORDER` are left alone, whitespace collapsed, idempotent.
